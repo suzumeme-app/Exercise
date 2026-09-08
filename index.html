@@ -225,6 +225,7 @@ function showItem(){
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 
 let audioCtx=null;
+let unlockedAudioEl=null;
 function unlockAudio(){
  try{
    audioCtx=audioCtx||new (window.AudioContext||window.webkitAudioContext)();
@@ -232,6 +233,20 @@ function unlockAudio(){
    const buf=audioCtx.createBuffer(1,1,22050);
    const src=audioCtx.createBufferSource();
    src.buffer=buf;src.connect(audioCtx.destination);src.start(0);
+ }catch(e){}
+ try{
+   if(!unlockedAudioEl){
+     unlockedAudioEl=new Audio();
+     unlockedAudioEl.src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+   }
+   unlockedAudioEl.play().catch(()=>{});
+ }catch(e){}
+ try{
+   if(window.speechSynthesis){
+     const u=new SpeechSynthesisUtterance(" ");
+     u.volume=0;
+     window.speechSynthesis.speak(u);
+   }
  }catch(e){}
 }
 function beep(freq=880,dur=.09,volume=.09){
@@ -272,8 +287,15 @@ function playPoint(x){
  if(!x)return;
  if(x.audio){
    try{
-     currentAudio=new Audio(x.audio);
-     currentAudio.play().catch(()=>{});
+     if(unlockedAudioEl){
+       currentAudio=unlockedAudioEl;
+       currentAudio.src=x.audio;
+       currentAudio.currentTime=0;
+       currentAudio.play().catch(()=>{});
+     }else{
+       currentAudio=new Audio(x.audio);
+       currentAudio.play().catch(()=>{});
+     }
    }catch(e){}
    return;
  }
