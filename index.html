@@ -225,12 +225,22 @@ function showItem(){
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 
 let audioCtx=null;
+function unlockAudio(){
+ try{
+   audioCtx=audioCtx||new (window.AudioContext||window.webkitAudioContext)();
+   if(audioCtx.state==="suspended")audioCtx.resume();
+   const buf=audioCtx.createBuffer(1,1,22050);
+   const src=audioCtx.createBufferSource();
+   src.buffer=buf;src.connect(audioCtx.destination);src.start(0);
+ }catch(e){}
+}
 function beep(freq=880,dur=.09,volume=.09){
  try{audioCtx=audioCtx||new (window.AudioContext||window.webkitAudioContext)();if(audioCtx.state==="suspended")audioCtx.resume();let o=audioCtx.createOscillator(),g=audioCtx.createGain();o.frequency.value=freq;o.type="sine";g.gain.setValueAtTime(volume,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(.001,audioCtx.currentTime+dur);o.connect(g);g.connect(audioCtx.destination);o.start();o.stop(audioCtx.currentTime+dur)}catch(e){}
 }
 function longBeep(){beep(880,.45,.11)}
 function begin(){
  const arr=items();if(!arr.length)return;
+ unlockAudio();
  state.running=true;state.phase="countdown";state.preRemaining=10;state.token++;const t=state.token;
  document.getElementById("startBtn").disabled=true;
  tickCountdown(t);
