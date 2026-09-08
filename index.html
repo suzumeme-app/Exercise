@@ -177,31 +177,31 @@ function compressImage(file,maxSize=1280,quality=0.8){
    reader.readAsDataURL(file);
  });
 }
+function duplicateItem(id){
+ if(state.running)return;
+ const src=items().find(v=>v.id===id);if(!src)return;
+ const copy=JSON.parse(JSON.stringify(src));copy.id=uid();
+ const idx=items().indexOf(src);items().splice(idx+1,0,copy);save();
+}
+function deleteItemConfirm(id){
+ if(state.running)return false;
+ const arr2=items();const idx=arr2.findIndex(v=>v.id===id);if(idx<0)return false;
+ if(!confirm("この種目を削除しますか？"))return false;
+ arr2.splice(idx,1);
+ if(state.index>=arr2.length)state.index=Math.max(0,arr2.length-1);
+ save();
+ return true;
+}
 function render(){
  const fs=document.getElementById("folderBar"), ls=document.getElementById("list");
  fs.innerHTML=data.folders.map(f=>`<button class="folder ${f.id===data.activeFolder?"active":""}" data-f="${f.id}">${esc(f.name)}</button>`).join("");
  fs.querySelectorAll("[data-f]").forEach(b=>b.onclick=()=>{if(state.running)return;data.activeFolder=b.dataset.f;state.index=0;save();render()});
  const arr=items();document.getElementById("count").textContent=arr.length?`${arr.length}種目`:"種目がありません";
- ls.innerHTML=arr.map((x,i)=>{const imgs=getImages(x);return `<div class="item ${i===state.index&&!state.running?"active-row":""}" data-select="${i}"><div class="thumb">${imgs[0]?`<img src="${imgs[0]}" style="width:100%;height:100%;object-fit:cover;border-radius:10px">`:"＋"}</div><span>${esc(x.name||"名称未設定")}</span><button data-dup="${x.id}">複製</button><button data-del="${x.id}">削除</button></div>`}).join("");
+ ls.innerHTML=arr.map((x,i)=>{const imgs=getImages(x);return `<div class="item ${i===state.index&&!state.running?"active-row":""}" data-select="${i}"><div class="thumb">${imgs[0]?`<img src="${imgs[0]}" style="width:100%;height:100%;object-fit:cover;border-radius:10px">`:"＋"}</div><span>${esc(x.name||"名称未設定")}</span></div>`}).join("");
  ls.querySelectorAll("[data-select]").forEach(el=>el.addEventListener("click",e=>{
-   if(e.target.closest("button"))return;
    if(state.running)return;
    state.index=parseInt(el.dataset.select,10);render();
  }));
- ls.querySelectorAll("[data-dup]").forEach(b=>b.onclick=()=>{
-   if(state.running)return;
-   const src=items().find(v=>v.id===b.dataset.dup);if(!src)return;
-   const copy=JSON.parse(JSON.stringify(src));copy.id=uid();copy.name=(src.name||"名称未設定")+" コピー";
-   const idx=items().indexOf(src);items().splice(idx+1,0,copy);save();render();
- });
- ls.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{
-   if(state.running)return;
-   const arr2=items();const idx=arr2.findIndex(v=>v.id===b.dataset.del);if(idx<0)return;
-   if(!confirm("この種目を削除しますか？"))return;
-   arr2.splice(idx,1);
-   if(state.index>=arr2.length)state.index=Math.max(0,arr2.length-1);
-   save();render();
- });
  if(!state.running)showItem();
 }
 function showItem(){
@@ -231,7 +231,7 @@ function tickCountdown(t){
  document.getElementById("status").textContent="開始まで";
  document.getElementById("timer").textContent=fmt(state.preRemaining);
  if(state.preRemaining<=0){startRound(t);return}
- if(state.preRemaining<=3)beep(720,.1,.09);
+ if(state.preRemaining<=3)beep(720,.1,.25);
  state.timeout=setTimeout(()=>{state.preRemaining--;tickCountdown(t)},1000);
 }
 let jaVoice=null,voicesReady=false;
@@ -284,7 +284,7 @@ function startRound(t){
 function schedule(t){
  if(!state.running||t!==state.token)return;
  const rem=Math.max(0,Math.ceil((state.deadline-Date.now())/1000));
- if(rem!==state.remaining){state.remaining=rem;renderRunning();if(rem<=3&&rem>0)beep(720,.1,.09)}
+ if(rem!==state.remaining){state.remaining=rem;renderRunning();if(rem<=3&&rem>0)beep(720,.1,.25)}
  if(rem<=0){startRest(t);return}
  state.timeout=setTimeout(()=>schedule(t),80);
 }
@@ -302,7 +302,7 @@ function startRest(t){
 function scheduleRest(t){
  if(!state.running||t!==state.token)return;
  const rem=Math.max(0,Math.ceil((state.deadline-Date.now())/1000));
- if(rem!==state.remaining){state.remaining=rem;renderRunning();if(rem<=3&&rem>0)beep(720,.1,.09)}
+ if(rem!==state.remaining){state.remaining=rem;renderRunning();if(rem<=3&&rem>0)beep(720,.1,.25)}
  if(rem<=0){nextRound(t);return}
  state.timeout=setTimeout(()=>scheduleRest(t),80);
 }
@@ -370,12 +370,14 @@ document.getElementById("manageBtn").onclick=openManager;
 document.getElementById("closeModal").onclick=()=>document.getElementById("modal").classList.remove("show");
 
 function itemRowsHtml(){
- return items().map((x,i)=>`<div class="item" data-itemrow="${x.id}" data-idx="${i}"><span class="drag-handle" style="cursor:grab;color:#666;padding:0 4px 0 0;flex:none;touch-action:none;font-size:20px;user-select:none">≡</span><span>${esc(x.name)}</span><button data-itemedit="${x.id}">編集</button></div>`).join("");
+ return items().map((x,i)=>`<div class="item" data-itemrow="${x.id}" data-idx="${i}"><span class="drag-handle" style="cursor:grab;color:#666;padding:0 4px 0 0;flex:none;touch-action:none;font-size:20px;user-select:none">≡</span><span>${esc(x.name)}</span><button data-itemedit="${x.id}">編集</button><button data-itemdup="${x.id}">複製</button><button data-itemdel="${x.id}">削除</button></div>`).join("");
 }
 function wireItemList(){
  const list=document.getElementById("itemList");
  if(!list)return;
  list.querySelectorAll("[data-itemedit]").forEach(b=>b.onclick=()=>editItem(b.dataset.itemedit));
+ list.querySelectorAll("[data-itemdup]").forEach(b=>b.onclick=()=>{duplicateItem(b.dataset.itemdup);render();renderItemList()});
+ list.querySelectorAll("[data-itemdel]").forEach(b=>b.onclick=()=>{if(deleteItemConfirm(b.dataset.itemdel)){render();renderItemList()}});
  let dragEl=null,dragIdx=null,startY=0,placeholder=null;
  list.querySelectorAll(".drag-handle").forEach(handle=>{
    const row=handle.closest("[data-itemrow]");
