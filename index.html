@@ -63,7 +63,6 @@
     <div class="card">
       <div class="hero" id="hero"><div class="placeholder">＋</div></div>
       <div class="name" id="exerciseName">エクササイズを追加</div>
-      <div class="next" id="nextLabel"></div>
       <div class="status" id="status">再生を押すと10秒後に開始</div>
       <div class="timer" id="timer">30</div>
       <button class="main-btn" id="startBtn">▶ 再生</button>
@@ -209,7 +208,6 @@ function showItem(){
  const imgs=getImages(x);
  document.getElementById("hero").innerHTML=imgs[0]?`<img src="${imgs[0]}">`:`<div class="placeholder">＋</div>`;
  document.getElementById("exerciseName").textContent=x?.name||"エクササイズを追加";
- document.getElementById("nextLabel").textContent="";
  document.getElementById("timer").textContent=state.phase==="finish"?"":fmt(getWorkSeconds(x));
  document.getElementById("status").textContent=state.phase==="finish"?"":(x?"再生を押すと10秒後に開始":"編集から種目を追加してください");
 }
@@ -231,7 +229,7 @@ function tickCountdown(t){
  document.getElementById("status").textContent="開始まで";
  document.getElementById("timer").textContent=fmt(state.preRemaining);
  if(state.preRemaining<=0){startRound(t);return}
- if(state.preRemaining<=3)beep(720,.1,.25);
+ if(state.preRemaining<=3)beep(720,.15,.6);
  state.timeout=setTimeout(()=>{state.preRemaining--;tickCountdown(t)},1000);
 }
 let jaVoice=null,voicesReady=false;
@@ -284,7 +282,7 @@ function startRound(t){
 function schedule(t){
  if(!state.running||t!==state.token)return;
  const rem=Math.max(0,Math.ceil((state.deadline-Date.now())/1000));
- if(rem!==state.remaining){state.remaining=rem;renderRunning();if(rem<=3&&rem>0)beep(720,.1,.25)}
+ if(rem!==state.remaining){state.remaining=rem;renderRunning();if(rem<=3&&rem>0)beep(720,.15,.6)}
  if(rem<=0){startRest(t);return}
  state.timeout=setTimeout(()=>schedule(t),80);
 }
@@ -296,13 +294,12 @@ function startRest(t){
  stopSlide();
  const nextImgs=getImages(nextX);
  document.getElementById("hero").innerHTML=nextImgs[0]?`<img src="${nextImgs[0]}">`:`<div class="placeholder">＋</div>`;
- document.getElementById("nextLabel").textContent=nextX?`NEXT: ${nextX.name||"名称未設定"}`:"NEXT: FINISH";
  scheduleRest(t)
 }
 function scheduleRest(t){
  if(!state.running||t!==state.token)return;
  const rem=Math.max(0,Math.ceil((state.deadline-Date.now())/1000));
- if(rem!==state.remaining){state.remaining=rem;renderRunning();if(rem<=3&&rem>0)beep(720,.1,.25)}
+ if(rem!==state.remaining){state.remaining=rem;renderRunning();if(rem<=3&&rem>0)beep(720,.15,.6)}
  if(rem<=0){nextRound(t);return}
  state.timeout=setTimeout(()=>scheduleRest(t),80);
 }
@@ -312,7 +309,6 @@ function nextRound(t){
  const x=arr[state.index];
  const secs=getWorkSeconds(x);
  state.phase="work";state.remaining=secs;state.deadline=Date.now()+secs*1000;beep(1000,.12,.1);renderRunning();schedule(t);
- document.getElementById("nextLabel").textContent="";
  startSlide(getImages(x));
  playPoint(x);
 }
@@ -342,7 +338,13 @@ function startSlide(images){
 }
 function renderRunning(){
  const arr=items(),x=arr[state.index];
- document.getElementById("exerciseName").textContent=x?.name||"";
+ if(state.phase==="rest"){
+   const nextX=state.index<arr.length-1?arr[state.index+1]:null;
+   const nextName=nextX?(nextX.name||"名称未設定"):"FINISH";
+   document.getElementById("exerciseName").innerHTML=`<span style="color:#7fd7ff">NEXT: </span>${esc(nextName)}`;
+ }else{
+   document.getElementById("exerciseName").textContent=x?.name||"";
+ }
  document.getElementById("timer").textContent=fmt(state.remaining);
  document.getElementById("status").textContent=state.phase==="rest"?"REST":"WORK";
 }
@@ -351,7 +353,6 @@ function finish(){
  stopSlide();
  document.getElementById("hero").innerHTML='<div class="placeholder">✓</div>';
  document.getElementById("exerciseName").textContent="FINISH";
- document.getElementById("nextLabel").textContent="";
  document.getElementById("status").textContent="すべて完了";
  document.getElementById("timer").textContent="";
  document.getElementById("startBtn").disabled=false;
