@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111">
+<title>Exercise Timer</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#111;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;min-height:100vh}button,input{font:inherit}button{cursor:pointer}
+.app{max-width:1100px;margin:auto;padding:22px 18px 36px}
+.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+.title{font-size:25px;font-weight:700}
+.top button,.small-btn{border:0;border-radius:12px;background:#292929;color:#fff;padding:10px 13px}
+.folderbar{display:flex;gap:8px;overflow-x:auto;padding-bottom:10px}
+.folder{white-space:nowrap;border:0;border-radius:20px;padding:9px 15px;background:#292929;color:#bbb}
+.folder.active{background:#fff;color:#111}
+.layout{display:flex;flex-direction:column;gap:16px}
+.card{background:#1d1d1d;border-radius:24px;padding:18px;flex:1;min-width:0}
+.side{flex:1;min-width:0}
+.hero{aspect-ratio:1/1;border-radius:18px;background:#2a2a2a;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.hero img{width:100%;height:100%;object-fit:contain}
+.placeholder{font-size:55px;color:#555}
+.name{text-align:center;font-size:27px;font-weight:700;margin:18px 5px 8px;min-height:34px}
+.next{text-align:center;color:#7fd7ff;font-size:16px;font-weight:600;min-height:20px}
+.status{text-align:center;color:#aaa;font-size:15px;min-height:22px}
+.timer{text-align:center;font-size:82px;font-weight:700;line-height:1;margin:12px 0 22px;font-variant-numeric:tabular-nums}
+.main-btn{width:100%;border:0;border-radius:17px;padding:17px;background:#fff;color:#111;font-weight:700;font-size:19px}
+.secondary{width:100%;border:0;border-radius:14px;padding:13px;background:#292929;color:#fff;margin-top:9px}
+.list{margin-top:8px}
+.item{display:flex;align-items:center;gap:11px;background:#1d1d1d;border-radius:14px;padding:10px;margin:7px 0}
+.thumb{width:54px;height:54px;border-radius:10px;background:#2a2a2a;object-fit:cover;display:flex;align-items:center;justify-content:center;color:#555;flex:none}
+.item span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item button{border:0;background:#333;color:#fff;border-radius:9px;padding:8px}
+.item .active-row{outline:2px solid #7fd7ff}
+.modal{position:fixed;inset:0;background:#000b;display:none;align-items:flex-end;justify-content:center;z-index:10}
+.modal.show{display:flex}
+.sheet{width:min(560px,100%);background:#1d1d1d;border-radius:24px 24px 0 0;padding:22px 18px 30px;max-height:90vh;overflow:auto}
+.sheet h2{margin:0 0 18px}
+.field{margin:12px 0}
+.field label{display:block;color:#aaa;font-size:13px;margin-bottom:6px}
+.field input,.field select{width:100%;background:#292929;border:1px solid #444;color:#fff;border-radius:10px;padding:12px;outline:none}
+.row{display:flex;gap:9px}
+.row>*{flex:1}
+.danger{background:#4a2020!important}
+.hidden{display:none!important}
+.empty{text-align:center;color:#888;padding:20px}
+.count{font-size:13px;color:#888;margin:2px 2px 0}
+.mode-buttons{display:flex;gap:8px;margin-top:8px}
+.mode-buttons button{flex:1}
+.preview{width:100%;max-height:180px;object-fit:contain;border-radius:12px;background:#292929;margin-top:8px}
+@media (orientation:landscape) and (min-width:760px){
+ .layout{flex-direction:row;align-items:flex-start}
+ .card{max-width:480px}
+ .side{max-height:calc(100vh - 160px);overflow:auto}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top"><div class="title">Exercise Timer</div><button id="manageBtn">編集</button></div>
+  <div id="folderBar" class="folderbar"></div>
+  <div class="layout">
+    <div class="card">
+      <div class="hero" id="hero"><div class="placeholder">＋</div></div>
+      <div class="name" id="exerciseName">エクササイズを追加</div>
+      <div class="next" id="nextLabel"></div>
+      <div class="status" id="status">再生を押すと10秒後に開始</div>
+      <div class="timer" id="timer">30</div>
+      <button class="main-btn" id="startBtn">▶ 再生</button>
+      <button class="secondary" id="stopBtn">停止</button>
+    </div>
+    <div class="side">
+      <div class="count" id="count"></div>
+      <div class="list" id="list"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="modal">
+ <div class="sheet">
+  <h2 id="modalTitle">編集</h2>
+  <div id="editor"></div>
+  <button class="secondary" id="closeModal">閉じる</button>
+ </div>
+</div>
+
+<script>
+const KEY="exerciseTimerDataV1";
+let data=JSON.parse(localStorage.getItem(KEY)||"null")||{folders:[{id:uid(),name:"エクササイズ",items:[]}],activeFolder:null};
+if(!data.activeFolder)data.activeFolder=data.folders[0].id;
+let state={running:false,phase:"idle",index:0,remaining:30,timeout:null,deadline:0,preRemaining:10,token:0};
+
+function uid(){return Math.random().toString(36).slice(2,10)}
+function save(){localStorage.setItem(KEY,JSON.stringify(data))}
+function folder(){return data.folders.find(f=>f.id===data.activeFolder)||data.folders[0]}
+function items(){return folder()?.items||[]}
+function fmt(n){return String(Math.max(0,n)).padStart(2,"0")}
+function getImages(x){
+ if(!x)return [];
+ if(Array.isArray(x.images)&&x.images.length)return x.images;
+ if(x.image)return [x.image];
+ return [];
+}
+function getWorkSeconds(x){
+ const v=parseInt(x?.workSeconds,10);
+ return [10,30,60].includes(v)?v:30;
+}
+function render(){
+ const fs=document.getElementById("folderBar"), ls=document.getElementById("list");
+ fs.innerHTML=data.folders.map(f=>`<button class="folder ${f.id===data.activeFolder?"active":""}" data-f="${f.id}">${esc(f.name)}</button>`).join("");
+ fs.querySelectorAll("[data-f]").forEach(b=>b.onclick=()=>{if(state.running)return;data.activeFolder=b.dataset.f;state.index=0;save();render()});
+ const arr=items();document.getElementById("count").textContent=arr.length?`${arr.length}種目`:"種目がありません";
+ ls.innerHTML=arr.map((x,i)=>{const imgs=getImages(x);return `<div class="item ${i===state.index&&!state.running?"active-row":""}" data-select="${i}"><div class="thumb">${imgs[0]?`<img src="${imgs[0]}" style="width:100%;height:100%;object-fit:cover;border-radius:10px">`:"＋"}</div><span>${esc(x.name||"名称未設定")}</span><button data-dup="${x.id}">複製</button><button data-del="${x.id}">削除</button></div>`}).join("");
+ ls.querySelectorAll("[data-select]").forEach(el=>el.addEventListener("click",e=>{
+   if(e.target.closest("button"))return;
+   if(state.running)return;
+   state.index=parseInt(el.dataset.select,10);render();
+ }));
+ ls.querySelectorAll("[data-dup]").forEach(b=>b.onclick=()=>{
+   if(state.running)return;
+   const src=items().find(v=>v.id===b.dataset.dup);if(!src)return;
+   const copy=JSON.parse(JSON.stringify(src));copy.id=uid();copy.name=(src.name||"名称未設定")+" コピー";
+   const idx=items().indexOf(src);items().splice(idx+1,0,copy);save();render();
+ });
+ ls.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{
+   if(state.running)return;
+   const arr2=items();const idx=arr2.findIndex(v=>v.id===b.dataset.del);if(idx<0)return;
+   if(!confirm("この種目を削除しますか？"))return;
+   arr2.splice(idx,1);
+   if(state.index>=arr2.length)state.index=Math.max(0,arr2.length-1);
+   save();render();
+ });
+ if(!state.running)showItem();
+}
+function showItem(){
+ const arr=items(),x=arr[state.index];
+ const imgs=getImages(x);
+ document.getElementById("hero").innerHTML=imgs[0]?`<img src="${imgs[0]}">`:`<div class="placeholder">＋</div>`;
+ document.getElementById("exerciseName").textContent=x?.name||"エクササイズを追加";
+ document.getElementById("nextLabel").textContent="";
+ document.getElementById("timer").textContent=state.phase==="finish"?"":fmt(getWorkSeconds(x));
+ document.getElementById("status").textContent=state.phase==="finish"?"":(x?"再生を押すと10秒後に開始":"編集から種目を追加してください");
+}
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+
+let audioCtx=null;
+function beep(freq=880,dur=.09,volume=.09){
+ try{audioCtx=audioCtx||new (window.AudioContext||window.webkitAudioContext)();if(audioCtx.state==="suspended")audioCtx.resume();let o=audioCtx.createOscillator(),g=audioCtx.createGain();o.frequency.value=freq;o.type="sine";g.gain.setValueAtTime(volume,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(.001,audioCtx.currentTime+dur);o.connect(g);g.connect(audioCtx.destination);o.start();o.stop(audioCtx.currentTime+dur)}catch(e){}
+}
+function longBeep(){beep(880,.45,.11)}
+function begin(){
+ const arr=items();if(!arr.length)return;
+ state.running=true;state.phase="countdown";state.preRemaining=10;state.token++;const t=state.token;
+ document.getElementById("startBtn").disabled=true;
+ tickCountdown(t);
+}
+function tickCountdown(t){
+ if(!state.running||t!==state.token)return;
+ document.getElementById("status").textContent="開始まで";
+ document.getElementById("timer").textContent=fmt(state.preRemaining);
+ if(state.preRemaining<=0){startRound(t);return}
+ if(state.preRemaining<=3)beep(720,.1,.09);
+ state.timeout=setTimeout(()=>{state.preRemaining--;tickCountdown(t)},1000);
+}
+let jaVoice=null,voicesReady=false;
+function pickVoice(){
+ try{
+   const voices=window.speechSynthesis.getVoices()||[];
+   const ja=voices.filter(v=>v.lang&&v.lang.toLowerCase().startsWith("ja"));
+   if(!ja.length)return;
+   jaVoice=ja.find(v=>/siri/i.test(v.name))||ja.find(v=>/kyoko|otoya|haruka|sayaka|natural|enhanced|premium/i.test(v.name))||ja[0];
+   voicesReady=true;
+ }catch(e){}
+}
+if(window.speechSynthesis){
+ pickVoice();
+ window.speechSynthesis.onvoiceschanged=pickVoice;
+}
+let currentAudio=null;
+function playPoint(x){
+ if(!x)return;
+ if(x.audio){
+   try{
+     currentAudio=new Audio(x.audio);
+     currentAudio.play().catch(()=>{});
+   }catch(e){}
+   return;
+ }
+ speakPoint(x.point);
+}
+function speakPoint(text){
+ try{
+   if(!text||!window.speechSynthesis)return;
+   window.speechSynthesis.cancel();
+   const u=new SpeechSynthesisUtterance(text);
+   u.lang="ja-JP";
+   if(jaVoice)u.voice=jaVoice;
+   u.rate=0.95;
+   u.pitch=1.0;
+   window.speechSynthesis.speak(u);
+ }catch(e){}
+}
+function startRound(t){
+ if(!state.running||t!==state.token)return;
+ const x=items()[state.index];
+ const secs=getWorkSeconds(x);
+ state.phase="work";state.remaining=secs;state.deadline=Date.now()+secs*1000;
+ beep(1000,.12,.1);renderRunning();schedule(t);
+ startSlide(getImages(x));
+ playPoint(x);
+}
+function schedule(t){
+ if(!state.running||t!==state.token)return;
+ const rem=Math.max(0,Math.ceil((state.deadline-Date.now())/1000));
+ if(rem!==state.remaining){state.remaining=rem;renderRunning();if(rem<=3&&rem>0)beep(720,.1,.09)}
+ if(rem<=0){startRest(t);return}
+ state.timeout=setTimeout(()=>schedule(t),80);
+}
+function startRest(t){
+ state.phase="rest";state.remaining=7;state.deadline=Date.now()+7000;longBeep();renderRunning();
+ const arr=items();
+ const hasNext=state.index<arr.length-1;
+ const nextX=hasNext?arr[state.index+1]:null;
+ stopSlide();
+ const nextImgs=getImages(nextX);
+ document.getElementById("hero").innerHTML=nextImgs[0]?`<img src="${nextImgs[0]}">`:`<div class="placeholder">＋</div>`;
+ document.getElementById("nextLabel").textContent=nextX?`NEXT: ${nextX.name||"名称未設定"}`:"NEXT: FINISH";
+ scheduleRest(t)
+}
+function scheduleRest(t){
+ if(!state.running||t!==state.token)return;
+ const rem=Math.max(0,Math.ceil((state.deadline-Date.now())/1000));
+ if(rem!==state.remaining){state.remaining=rem;renderRunning();if(rem<=3&&rem>0)beep(720,.1,.09)}
+ if(rem<=0){nextRound(t);return}
+ state.timeout=setTimeout(()=>scheduleRest(t),80);
+}
+function nextRound(t){
+ const arr=items();if(state.index>=arr.length-1){finish();return}
+ state.index++;
+ const x=arr[state.index];
+ const secs=getWorkSeconds(x);
+ state.phase="work";state.remaining=secs;state.deadline=Date.now()+secs*1000;beep(1000,.12,.1);renderRunning();schedule(t);
+ document.getElementById("nextLabel").textContent="";
+ startSlide(getImages(x));
+ playPoint(x);
+}
+let slideTimer=null,slideIdx=0,slideImages=[];
+function stopSlide(){
+ if(slideTimer){clearInterval(slideTimer);slideTimer=null}
+}
+function setHeroImage(){
+ const hero=document.getElementById("hero");
+ if(slideImages.length){
+   hero.innerHTML=`<img src="${slideImages[slideIdx%slideImages.length]}">`;
+ }else{
+   hero.innerHTML=`<div class="placeholder">＋</div>`;
+ }
+}
+function startSlide(images){
+ stopSlide();
+ slideImages=images||[];
+ slideIdx=0;
+ setHeroImage();
+ if(slideImages.length>1){
+   slideTimer=setInterval(()=>{
+     slideIdx=(slideIdx+1)%slideImages.length;
+     setHeroImage();
+   },3000);
+ }
+}
+function renderRunning(){
+ const arr=items(),x=arr[state.index];
+ document.getElementById("exerciseName").textContent=x?.name||"";
+ document.getElementById("timer").textContent=fmt(state.remaining);
+ document.getElementById("status").textContent=state.phase==="rest"?"REST":"WORK";
+}
+function finish(){
+ clearTimeout(state.timeout);state.running=false;state.phase="finish";
+ stopSlide();
+ document.getElementById("hero").innerHTML='<div class="placeholder">✓</div>';
+ document.getElementById("exerciseName").textContent="FINISH";
+ document.getElementById("nextLabel").textContent="";
+ document.getElementById("status").textContent="すべて完了";
+ document.getElementById("timer").textContent="";
+ document.getElementById("startBtn").disabled=false;
+ longBeep();
+}
+function stop(){
+ state.token++;clearTimeout(state.timeout);state.running=false;state.phase="idle";state.index=0;state.remaining=30;
+ stopSlide();
+ try{window.speechSynthesis&&window.speechSynthesis.cancel()}catch(e){}
+ try{if(currentAudio){currentAudio.pause();currentAudio.currentTime=0}}catch(e){}
+ document.getElementById("startBtn").disabled=false;render();
+}
+document.getElementById("startBtn").onclick=begin;
+document.getElementById("stopBtn").onclick=stop;
+document.getElementById("manageBtn").onclick=openManager;
+document.getElementById("closeModal").onclick=()=>document.getElementById("modal").classList.remove("show");
+
+function itemRowsHtml(){
+ return items().map((x,i)=>`<div class="item" data-itemrow="${x.id}" data-idx="${i}"><span class="drag-handle" style="cursor:grab;color:#666;padding:0 4px 0 0;flex:none;touch-action:none;font-size:20px;user-select:none">≡</span><span>${esc(x.name)}</span><button data-itemedit="${x.id}">編集</button></div>`).join("");
+}
+function wireItemList(){
+ const list=document.getElementById("itemList");
+ if(!list)return;
+ list.querySelectorAll("[data-itemedit]").forEach(b=>b.onclick=()=>editItem(b.dataset.itemedit));
+ let dragEl=null,dragIdx=null,startY=0,placeholder=null;
+ list.querySelectorAll(".drag-handle").forEach(handle=>{
+   const row=handle.closest("[data-itemrow]");
+   const onStart=clientY=>{
+     dragEl=row;dragIdx=parseInt(row.dataset.idx,10);startY=clientY;
+     row.style.position="relative";row.style.zIndex="5";row.style.opacity="0.85";
+     placeholder=document.createElement("div");
+     placeholder.style.height=row.offsetHeight+"px";
+     placeholder.style.margin=getComputedStyle(row).margin;
+     row.parentNode.insertBefore(placeholder,row.nextSibling);
+   };
+   const onMove=clientY=>{
+     if(!dragEl)return;
+     const dy=clientY-startY;
+     dragEl.style.transform=`translateY(${dy}px)`;
+     const rows=[...list.querySelectorAll("[data-itemrow]")].filter(r=>r!==dragEl);
+     for(const r of rows){
+       const rect=r.getBoundingClientRect();
+       const mid=rect.top+rect.height/2;
+       if(clientY<mid){r.parentNode.insertBefore(placeholder,r);break}
+       if(r===rows[rows.length-1])r.parentNode.insertBefore(placeholder,r.nextSibling);
+     }
+   };
+   const onEnd=()=>{
+     if(!dragEl)return;
+     dragEl.style.transform="";dragEl.style.position="";dragEl.style.zIndex="";dragEl.style.opacity="";
+     const toIdx=[...list.children].indexOf(placeholder);
+     placeholder.replaceWith(dragEl);
+     const arr=items();
+     const [moved]=arr.splice(dragIdx,1);
+     arr.splice(toIdx,0,moved);
+     save();
+     dragEl=null;dragIdx=null;placeholder=null;
+     renderItemList();
+   };
+   handle.addEventListener("touchstart",e=>{e.preventDefault();onStart(e.touches[0].clientY)},{passive:false});
+   handle.addEventListener("touchmove",e=>{e.preventDefault();onMove(e.touches[0].clientY)},{passive:false});
+   handle.addEventListener("touchend",onEnd);
+   handle.addEventListener("mousedown",e=>{
+     e.preventDefault();onStart(e.clientY);
+     const mm=ev=>onMove(ev.clientY);
+     const mu=()=>{onEnd();document.removeEventListener("mousemove",mm);document.removeEventListener("mouseup",mu)};
+     document.addEventListener("mousemove",mm);
+     document.addEventListener("mouseup",mu);
+   });
+ });
+}
+function renderItemList(){
+ const list=document.getElementById("itemList");
+ if(!list)return;
+ list.innerHTML=itemRowsHtml();
+ wireItemList();
+}
+function openManager(){
+ if(state.running)return;
+ const e=document.getElementById("editor");
+ e.innerHTML=`<div class="mode-buttons"><button class="secondary" id="exportData">全データを保存</button><button class="secondary" id="importDataBtn">インポート</button></div><input id="importFile" type="file" accept="application/json" style="display:none"><div style="height:8px"></div><button class="main-btn" id="addFolder">＋ フォルダを追加</button><div style="height:8px"></div>${data.folders.map(f=>`<div class="item"><span>📁 ${esc(f.name)}</span><button data-folderedit="${f.id}">編集</button></div>`).join("")}<hr style="border-color:#333;margin:20px 0"><h3>${esc(folder().name)}</h3><button class="main-btn" id="addItem">＋ 種目を追加</button><div id="itemList">${itemRowsHtml()}</div>`;
+ document.getElementById("modalTitle").textContent="編集";
+ document.getElementById("modal").classList.add("show");
+ document.getElementById("addFolder").onclick=()=>addFolder();
+ document.getElementById("addItem").onclick=()=>editItem();
+ e.querySelectorAll("[data-folderedit]").forEach(b=>b.onclick=()=>editFolder(b.dataset.folderedit));
+ wireItemList();
+ document.getElementById("exportData").onclick=()=>{
+   const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+   const url=URL.createObjectURL(blob);
+   const a=document.createElement("a");
+   const ts=new Date().toISOString().slice(0,10);
+   a.href=url;a.download=`exercise-timer-${ts}.json`;
+   document.body.appendChild(a);a.click();a.remove();
+   URL.revokeObjectURL(url);
+ };
+ document.getElementById("importDataBtn").onclick=()=>document.getElementById("importFile").click();
+ document.getElementById("importFile").addEventListener("change",ev=>{
+   const file=ev.target.files[0];if(!file)return;
+   const reader=new FileReader();
+   reader.onload=()=>{
+     try{
+       const parsed=JSON.parse(reader.result);
+       if(!parsed||!Array.isArray(parsed.folders)||!parsed.folders.length)throw new Error("invalid");
+       if(!confirm("現在の全データを、読み込んだ内容で置き換えますか？"))return;
+       data=parsed;
+       if(!data.activeFolder||!data.folders.find(f=>f.id===data.activeFolder))data.activeFolder=data.folders[0].id;
+       state.index=0;
+       save();render();openManager();
+     }catch(err){
+       alert("読み込みに失敗しました。正しいファイルか確認してください。");
+     }
+     ev.target.value="";
+   };
+   reader.readAsText(file);
+ });
+}
+function addFolder(){
+ const name=prompt("フォルダ名","新しいフォルダ");if(!name?.trim())return;
+ const f={id:uid(),name:name.trim(),items:[]};data.folders.push(f);data.activeFolder=f.id;save();render();openManager()
+}
+function editFolder(id){
+ const f=data.folders.find(x=>x.id===id);if(!f)return;
+ const name=prompt("フォルダ名",f.name);if(name?.trim()){f.name=name.trim();save();render();openManager()}
+}
+function editItem(id){
+ const arr=items(),x=id?arr.find(v=>v.id===id):null;
+ const e=document.getElementById("editor");
+ let images=getImages(x).slice();
+ let audio=x?.audio||"";
+ function photoPreviewHtml(){
+   if(!images.length)return "";
+   return `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">${images.map((img,i)=>`<div style="position:relative"><img src="${img}" style="width:74px;height:74px;object-fit:cover;border-radius:10px"><button data-rmimg="${i}" style="position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;border:0;background:#c0392b;color:#fff;font-size:13px;line-height:1;padding:0">×</button></div>`).join("")}</div>`;
+ }
+ e.innerHTML=`<div class="field"><label>エクササイズ名</label><input id="itemName" value="${esc(x?.name||"")}"></div>
+ <div class="field"><label>写真（複数可）</label><input id="itemPhoto" type="file" accept="image/png, image/jpeg, image/heic, image/heif, image/webp" multiple><div id="photoPreview">${photoPreviewHtml()}</div></div>
+ <div class="field"><label>ポイント</label><textarea id="itemPoint" rows="3" style="width:100%;background:#292929;border:1px solid #444;color:#fff;border-radius:10px;padding:12px;outline:none;font:inherit;resize:vertical">${esc(x?.point||"")}</textarea></div>
+ <div class="field"><label>エクササイズ時間</label><select id="itemWorkSeconds"><option value="10">10秒</option><option value="30">30秒</option><option value="60">60秒</option></select></div>
+ <div class="field"><label>音声ファイル（VOICEVOX等・任意）</label><input id="itemAudio" type="file" accept="audio/*"><div id="audioPreview">${x?.audio?`<audio class="preview" controls src="${x.audio}" style="width:100%;margin-top:8px"></audio>`:""}</div></div>
+ <div class="mode-buttons"><button class="main-btn" id="saveItem">保存</button><button class="secondary" id="cancelItem">キャンセル</button></div>
+ ${x?.audio?'<button class="secondary danger" id="deleteAudio">音声を削除</button>':""}`;
+ e.querySelector("#itemWorkSeconds").value=String(getWorkSeconds(x));
+ const photo=e.querySelector("#itemPhoto"), preview=e.querySelector("#photoPreview");
+ function refreshPreview(){
+   preview.innerHTML=photoPreviewHtml();
+   preview.querySelectorAll("[data-rmimg]").forEach(b=>b.onclick=()=>{images.splice(parseInt(b.dataset.rmimg,10),1);refreshPreview()});
+ }
+ refreshPreview();
+ photo.onchange=()=>{
+   const files=[...(photo.files||[])].filter(f=>f.type.startsWith("image/"));
+   if(!files.length)return;
+   let remaining=files.length;
+   files.forEach(file=>{
+     const reader=new FileReader();
+     reader.onload=ev=>{images.push(ev.target.result);remaining--;if(remaining===0){refreshPreview();photo.value=""}};
+     reader.readAsDataURL(file);
+   });
+ };
+ const audioInput=e.querySelector("#itemAudio"), audioPreview=e.querySelector("#audioPreview");
+ audioInput.onchange=()=>{
+   const file=audioInput.files?.[0]; if(!file)return;
+   if(!file.type.startsWith("audio/"))return;
+   const reader=new FileReader();
+   reader.onload=ev=>{audio=ev.target.result;audioPreview.innerHTML=`<audio class="preview" controls src="${audio}" style="width:100%;margin-top:8px"></audio>`};
+   reader.readAsDataURL(file);
+ };
+ e.querySelector("#saveItem").onclick=()=>{
+   const name=e.querySelector("#itemName").value.trim()||"名称未設定";
+   const point=e.querySelector("#itemPoint").value.trim();
+   const workSeconds=parseInt(e.querySelector("#itemWorkSeconds").value,10);
+   if(x){x.name=name;x.images=images;delete x.image;x.point=point;x.audio=audio;x.workSeconds=workSeconds}else arr.push({id:uid(),name,images,point,audio,workSeconds});
+   save();render();openManager();
+ };
+ e.querySelector("#cancelItem").onclick=openManager;
+ const delAudio=e.querySelector("#deleteAudio");
+ if(delAudio)delAudio.onclick=()=>{audio="";audioPreview.innerHTML="";delAudio.remove()};
+}
+render();
+</script>
+</body>
+</html>
