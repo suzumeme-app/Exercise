@@ -97,7 +97,7 @@ const DB_NAME="exerciseTimerDB";
 const STORE="kv";
 let data={folders:[{id:uid(),name:"エクササイズ",items:[]}],activeFolder:null};
 if(!data.activeFolder)data.activeFolder=data.folders[0].id;
-let state={running:false,phase:"idle",index:0,remaining:30,timeout:null,deadline:0,preRemaining:10,token:0};
+let state={running:false,paused:false,phase:"idle",index:0,remaining:30,timeout:null,deadline:0,preRemaining:10,token:0,pausedPhase:null};
 let dbPromise=null;
 function openDB(){
  if(dbPromise)return dbPromise;
@@ -220,6 +220,7 @@ function render(){
    state.index=parseInt(el.dataset.select,10);render();
  }));
  if(!state.running)showItem();
+ updateStartBtn();
 }
 function showItem(){
  const arr=items(),x=arr[state.index];
@@ -261,14 +262,63 @@ function beep(freq=880,dur=.09,volume=.09){
 }
 function longBeep(){beep(880,.45,.11)}
 function begin(){
+ if(state.running&&state.paused){resumeTimer();return}
+ if(state.running&&!state.paused){pauseTimer();return}
  const arr=items();if(!arr.length)return;
+ try{window.speechSynthesis&&window.speechSynthesis.cancel()}catch(e){}
+ try{if(currentAudio){currentAudio.pause();currentAudio.currentTime=0}}catch(e){}
  unlockAudio();
- state.running=true;state.phase="countdown";state.preRemaining=10;state.token++;const t=state.token;
- document.getElementById("startBtn").disabled=true;
+ state.running=true;state.paused=false;state.phase="countdown";state.preRemaining=10;state.token++;const t=state.token;
+ updateStartBtn();
  tickCountdown(t);
 }
+function updateStartBtn(){
+ const btn=document.getElementById("startBtn");
+ if(state.running&&!state.paused){
+   btn.textContent="⏸ 一時停止";
+ }else if(state.running&&state.paused){
+   btn.textContent="▶ 再開";
+ }else{
+   btn.textContent="▶ 再生";
+ }
+}
+function pauseTimer(){
+ if(!state.running||state.paused)return;
+ state.paused=true;
+ state.pausedPhase=state.phase;
+ clearTimeout(state.timeout);
+ try{window.speechSynthesis&&window.speechSynthesis.pause()}catch(e){}
+ try{if(currentAudio)currentAudio.pause()}catch(e){}
+ stopSlide();
+ if(state.phase==="countdown"){
+   state.remainingMsAtPause=null;
+ }else{
+   state.remainingMsAtPause=Math.max(0,state.deadline-Date.now());
+ }
+ document.getElementById("status").textContent="一時停止中";
+ updateStartBtn();
+}
+function resumeTimer(){
+ if(!state.running||!state.paused)return;
+ state.paused=false;
+ const t=state.token;
+ updateStartBtn();
+ try{window.speechSynthesis&&window.speechSynthesis.resume()}catch(e){}
+ try{if(currentAudio)currentAudio.play().catch(()=>{})}catch(e){}
+ if(state.phase==="countdown"){
+   tickCountdown(t);
+ }else if(state.phase==="work"){
+   state.deadline=Date.now()+(state.remainingMsAtPause||0);
+   const x=items()[state.index];
+   startSlide(getImages(x));
+   schedule(t);
+ }else if(state.phase==="rest"){
+   state.deadline=Date.now()+(state.remainingMsAtPause||0);
+   scheduleRest(t);
+ }
+}
 function tickCountdown(t){
- if(!state.running||t!==state.token)return;
+ if(!state.running||state.paused||t!==state.token)return;
  document.getElementById("status").textContent="開始まで";
  document.getElementById("timer").textContent=fmt(state.preRemaining);
  if(state.preRemaining<=0){startRound(t);return}
@@ -292,6 +342,7 @@ if(window.speechSynthesis){
 let currentAudio=null;
 function playPoint(x){
  if(!x)return;
+ try{window.speechSynthesis&&window.speechSynthesis.cancel()}catch(e){}
  if(x.audio){
    try{
      if(unlockedAudioEl){
@@ -322,6 +373,7 @@ function speakPoint(text){
 }
 function playNextName(x){
  if(!x)return;
+ try{window.speechSynthesis&&window.speechSynthesis.cancel()}catch(e){}
  if(x.nameAudio){
    try{
      if(unlockedAudioEl){
@@ -348,7 +400,7 @@ function startRound(t){
  playPoint(x);
 }
 function schedule(t){
- if(!state.running||t!==state.token)return;
+ if(!state.running||state.paused||t!==state.token)return;
  const rem=Math.max(0,Math.ceil((state.deadline-Date.now())/1000));
  if(rem!==state.remaining){state.remaining=rem;renderRunning();if(rem<=3&&rem>0)beep(720,.15,.6)}
  if(rem<=0){startRest(t);return}
@@ -366,7 +418,7 @@ function startRest(t){
  scheduleRest(t)
 }
 function scheduleRest(t){
- if(!state.running||t!==state.token)return;
+ if(!state.running||state.paused||t!==state.token)return;
  const rem=Math.max(0,Math.ceil((state.deadline-Date.now())/1000));
  if(rem!==state.remaining){state.remaining=rem;renderRunning();if(rem<=3&&rem>0)beep(720,.15,.6)}
  if(rem<=0){nextRound(t);return}
@@ -418,21 +470,21 @@ function renderRunning(){
  document.getElementById("status").textContent=state.phase==="rest"?"REST":"WORK";
 }
 function finish(){
- clearTimeout(state.timeout);state.running=false;state.phase="finish";
+ clearTimeout(state.timeout);state.running=false;state.paused=false;state.phase="finish";
  stopSlide();
  document.getElementById("hero").innerHTML='<div class="placeholder">✓</div>';
  document.getElementById("exerciseName").textContent="FINISH";
  document.getElementById("status").textContent="すべて完了";
  document.getElementById("timer").textContent="";
- document.getElementById("startBtn").disabled=false;
+ updateStartBtn();
  longBeep();
 }
 function stop(){
- state.token++;clearTimeout(state.timeout);state.running=false;state.phase="idle";state.index=0;state.remaining=30;
+ state.token++;clearTimeout(state.timeout);state.running=false;state.paused=false;state.phase="idle";state.index=0;state.remaining=30;
  stopSlide();
  try{window.speechSynthesis&&window.speechSynthesis.cancel()}catch(e){}
  try{if(currentAudio){currentAudio.pause();currentAudio.currentTime=0}}catch(e){}
- document.getElementById("startBtn").disabled=false;render();
+ updateStartBtn();render();
 }
 document.getElementById("startBtn").onclick=begin;
 document.getElementById("stopBtn").onclick=stop;
