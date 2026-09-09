@@ -84,9 +84,12 @@
 
 <div class="modal" id="modal">
  <div class="sheet">
-  <h2 id="modalTitle">編集</h2>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+   <h2 id="modalTitle" style="margin:0">編集</h2>
+   <button class="small-btn" id="closeModalTop" style="padding:8px;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></button>
+  </div>
   <div id="editor"></div>
-  <button class="secondary" id="closeModal">閉じる</button>
+  <button class="secondary" id="closeModal" style="display:flex;align-items:center;justify-content:center;padding:13px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg></button>
  </div>
 </div>
 
@@ -225,8 +228,10 @@ function deleteItemConfirm(id){
 }
 function render(){
  const fs=document.getElementById("folderBar"), ls=document.getElementById("list");
- fs.innerHTML=data.folders.map(f=>`<button class="folder ${f.id===data.activeFolder?"active":""}" data-f="${f.id}">${esc(f.name)}</button>`).join("");
+ fs.innerHTML=data.folders.map(f=>`<button class="folder ${f.id===data.activeFolder?"active":""}" data-f="${f.id}">${esc(f.name)}</button>`).join("")+`<button class="folder" id="addFolderBtn" style="font-weight:700">＋</button>`;
  fs.querySelectorAll("[data-f]").forEach(b=>b.onclick=()=>{if(state.running)return;data.activeFolder=b.dataset.f;state.index=0;save();render()});
+ const addFolderBtn=document.getElementById("addFolderBtn");
+ if(addFolderBtn)addFolderBtn.onclick=()=>{if(state.running)return;addFolder()};
  const arr=items();document.getElementById("count").textContent=arr.length?`${arr.length}種目・合計${formatDuration(totalSeconds(arr))}`:"種目がありません";
  ls.innerHTML=arr.map((x,i)=>{const imgs=getImages(x);return `<div class="item ${i===state.index&&!state.running?"active-row":""}" data-select="${i}"><div class="thumb">${imgs[0]?`<img src="${imgs[0]}" style="width:100%;height:100%;object-fit:cover;border-radius:10px">`:"＋"}</div><span>${esc(x.name||"名称未設定")}</span></div>`}).join("");
  ls.querySelectorAll("[data-select]").forEach(el=>el.addEventListener("click",e=>{
@@ -240,7 +245,9 @@ function showItem(){
  const arr=items(),x=arr[state.index];
  const imgs=getImages(x);
  document.getElementById("hero").innerHTML=imgs[0]?`<img src="${imgs[0]}">`:`<div class="placeholder">＋</div>`;
- document.getElementById("exerciseName").textContent=x?.name||"エクササイズを追加";
+ const nameEl=document.getElementById("exerciseName");
+ nameEl.style.fontSize="";
+ nameEl.textContent=x?.name||"エクササイズを追加";
  document.getElementById("timer").textContent=state.phase==="finish"?"":fmt(getWorkSeconds(x));
  document.getElementById("status").textContent=state.phase==="finish"?"":(x?"再生を押すと10秒後に開始":"編集から種目を追加してください");
 }
@@ -289,6 +296,7 @@ function begin(){
 const ICON_PLAY='<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
 const ICON_PAUSE='<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
 const ICON_FOLDER='<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-3px;margin-right:6px"><path d="M3 6a2 2 0 0 1 2-2h4.4a2 2 0 0 1 1.6.8L12.4 6H19a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6z"/></svg>';
+const ICON_CLOSE='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>';
 function updateStartBtn(){
  const btn=document.getElementById("startBtn");
  const icon=document.getElementById("startBtnIcon");
@@ -422,7 +430,11 @@ function schedule(t){
  if(!state.running||state.paused||t!==state.token)return;
  const rem=Math.max(0,Math.ceil((state.deadline-Date.now())/1000));
  if(rem!==state.remaining){state.remaining=rem;renderRunning();if(rem<=3&&rem>0)beep(720,.15,.6)}
- if(rem<=0){startRest(t);return}
+ if(rem<=0){
+   const arr=items();
+   if(state.index>=arr.length-1){finish();return}
+   startRest(t);return
+ }
  state.timeout=setTimeout(()=>schedule(t),80);
 }
 function startRest(t){
@@ -485,12 +497,14 @@ function startSlide(images){
 }
 function renderRunning(){
  const arr=items(),x=arr[state.index];
+ const nameEl=document.getElementById("exerciseName");
+ nameEl.style.fontSize="";
  if(state.phase==="rest"){
    const nextX=state.index<arr.length-1?arr[state.index+1]:null;
    const nextName=nextX?(nextX.name||"名称未設定"):"FINISH";
-   document.getElementById("exerciseName").innerHTML=`<span style="color:#7fd7ff">NEXT: ${esc(nextName)}</span>`;
+   nameEl.innerHTML=`<span style="color:#7fd7ff">NEXT: ${esc(nextName)}</span>`;
  }else{
-   document.getElementById("exerciseName").textContent=x?.name||"";
+   nameEl.textContent=x?.name||"";
  }
  document.getElementById("timer").textContent=fmt(state.remaining);
  document.getElementById("status").textContent=state.phase==="rest"?"REST":"WORK";
@@ -499,7 +513,9 @@ function finish(){
  clearTimeout(state.timeout);state.running=false;state.paused=false;state.phase="finish";
  stopSlide();
  document.getElementById("hero").innerHTML='<div class="placeholder">✓</div>';
- document.getElementById("exerciseName").textContent="FINISH";
+ const nameEl=document.getElementById("exerciseName");
+ nameEl.textContent="FINISH";
+ nameEl.style.fontSize="82px";
  document.getElementById("status").textContent="すべて完了";
  document.getElementById("timer").textContent="";
  updateStartBtn();
@@ -516,6 +532,7 @@ document.getElementById("startBtn").onclick=begin;
 document.getElementById("stopBtn").onclick=stop;
 document.getElementById("manageBtn").onclick=openManager;
 document.getElementById("closeModal").onclick=()=>document.getElementById("modal").classList.remove("show");
+document.getElementById("closeModalTop").onclick=()=>document.getElementById("modal").classList.remove("show");
 
 let selectedItemIds=new Set();
 function itemRowsHtml(){
@@ -640,10 +657,9 @@ function moveSelectedItemsTo(targetFolderId){
 function openManager(){
  if(state.running)return;
  const e=document.getElementById("editor");
- e.innerHTML=`<div class="mode-buttons"><button class="secondary" id="exportData">全データを保存</button><button class="secondary" id="importDataBtn">インポート</button></div><input id="importFile" type="file" accept="application/json" style="display:none"><div style="height:8px"></div><button class="main-btn" id="addFolder">＋ フォルダを追加</button><div style="height:8px"></div>${data.folders.map(f=>`<div class="item"><span>${ICON_FOLDER}${esc(f.name)}</span><button data-folderedit="${f.id}">編集</button></div>`).join("")}<hr style="border-color:#333;margin:20px 0"><h3>${esc(folder().name)}</h3><button class="main-btn" id="addItem">＋ 種目を追加</button><div id="moveBar"></div><div id="itemList">${itemRowsHtml()}</div>`;
+ e.innerHTML=`<div class="mode-buttons"><button class="secondary" id="exportData">全データを保存</button><button class="secondary" id="importDataBtn">インポート</button></div><input id="importFile" type="file" accept="application/json" style="display:none"><div style="height:8px"></div>${data.folders.map(f=>`<div class="item"><span>${ICON_FOLDER}${esc(f.name)}</span><button data-folderedit="${f.id}">編集</button></div>`).join("")}<hr style="border-color:#333;margin:20px 0"><h3>${esc(folder().name)}</h3><button class="main-btn" id="addItem">＋ 種目を追加</button><div id="moveBar"></div><div id="itemList">${itemRowsHtml()}</div>`;
  document.getElementById("modalTitle").textContent="編集";
  document.getElementById("modal").classList.add("show");
- document.getElementById("addFolder").onclick=()=>addFolder();
  document.getElementById("addItem").onclick=()=>editItem();
  e.querySelectorAll("[data-folderedit]").forEach(b=>b.onclick=()=>editFolder(b.dataset.folderedit));
  wireItemList();
@@ -680,7 +696,9 @@ function openManager(){
 }
 function addFolder(){
  const name=prompt("フォルダ名","新しいフォルダ");if(!name?.trim())return;
- const f={id:uid(),name:name.trim(),items:[]};data.folders.push(f);data.activeFolder=f.id;save();render();openManager()
+ const f={id:uid(),name:name.trim(),items:[]};data.folders.push(f);data.activeFolder=f.id;save();render();
+ const modalOpen=document.getElementById("modal").classList.contains("show");
+ if(modalOpen)openManager();
 }
 function editFolder(id){
  const f=data.folders.find(x=>x.id===id);if(!f)return;
