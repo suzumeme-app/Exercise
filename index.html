@@ -414,13 +414,20 @@ function startRest(t){
  stopSlide();
  const nextImgs=getImages(nextX);
  document.getElementById("hero").innerHTML=nextImgs[0]?`<img src="${nextImgs[0]}">`:`<div class="placeholder">＋</div>`;
- if(nextX)playNextName(nextX);
+ state.nextNamePlayed=false;
  scheduleRest(t)
 }
 function scheduleRest(t){
  if(!state.running||state.paused||t!==state.token)return;
  const rem=Math.max(0,Math.ceil((state.deadline-Date.now())/1000));
  if(rem!==state.remaining){state.remaining=rem;renderRunning();if(rem<=3&&rem>0)beep(720,.15,.6)}
+ if(!state.nextNamePlayed&&rem<=8){
+   state.nextNamePlayed=true;
+   const arr=items();
+   const hasNext=state.index<arr.length-1;
+   const nextX=hasNext?arr[state.index+1]:null;
+   if(nextX)playNextName(nextX);
+ }
  if(rem<=0){nextRound(t);return}
  state.timeout=setTimeout(()=>scheduleRest(t),80);
 }
@@ -491,15 +498,25 @@ document.getElementById("stopBtn").onclick=stop;
 document.getElementById("manageBtn").onclick=openManager;
 document.getElementById("closeModal").onclick=()=>document.getElementById("modal").classList.remove("show");
 
+let selectedItemIds=new Set();
 function itemRowsHtml(){
- return items().map((x,i)=>`<div class="item" data-itemrow="${x.id}" data-idx="${i}"><span class="drag-handle" style="cursor:grab;color:#666;padding:0 4px 0 0;flex:none;touch-action:none;font-size:20px;user-select:none">≡</span><span>${esc(x.name)}</span><button data-itemedit="${x.id}">編集</button><button data-itemdup="${x.id}">複製</button><button data-itemdel="${x.id}">削除</button></div>`).join("");
+ return items().map((x,i)=>`<div class="item" data-itemrow="${x.id}" data-idx="${i}"><input type="checkbox" data-itemcheck="${x.id}" ${selectedItemIds.has(x.id)?"checked":""} style="width:20px;height:20px;flex:none"><span class="drag-handle" style="cursor:grab;color:#666;padding:0 4px 0 0;flex:none;touch-action:none;font-size:20px;user-select:none">≡</span><span>${esc(x.name)}</span><button data-itemedit="${x.id}">編集</button><button data-itemdup="${x.id}">複製</button><button data-itemdel="${x.id}">削除</button></div>`).join("");
+}
+function moveBarHtml(){
+ const count=selectedItemIds.size;
+ if(!count)return "";
+ return `<div class="mode-buttons" style="margin:10px 0"><button class="main-btn" id="moveSelected">選択した${count}件を他のフォルダへ移動</button><button class="secondary" id="clearSelection">選択解除</button></div>`;
 }
 function wireItemList(){
  const list=document.getElementById("itemList");
  if(!list)return;
  list.querySelectorAll("[data-itemedit]").forEach(b=>b.onclick=()=>editItem(b.dataset.itemedit));
  list.querySelectorAll("[data-itemdup]").forEach(b=>b.onclick=()=>{duplicateItem(b.dataset.itemdup);render();renderItemList()});
- list.querySelectorAll("[data-itemdel]").forEach(b=>b.onclick=()=>{if(deleteItemConfirm(b.dataset.itemdel)){render();renderItemList()}});
+ list.querySelectorAll("[data-itemdel]").forEach(b=>b.onclick=()=>{if(deleteItemConfirm(b.dataset.itemdel)){selectedItemIds.delete(b.dataset.itemdel);render();renderItemList()}});
+ list.querySelectorAll("[data-itemcheck]").forEach(cb=>cb.onchange=()=>{
+   if(cb.checked)selectedItemIds.add(cb.dataset.itemcheck);else selectedItemIds.delete(cb.dataset.itemcheck);
+   refreshMoveBar();
+ });
  let dragEl=null,dragIdx=null,startY=0,placeholder=null;
  list.querySelectorAll(".drag-handle").forEach(handle=>{
    const row=handle.closest("[data-itemrow]");
@@ -552,17 +569,55 @@ function renderItemList(){
  if(!list)return;
  list.innerHTML=itemRowsHtml();
  wireItemList();
+ refreshMoveBar();
+}
+function refreshMoveBar(){
+ const bar=document.getElementById("moveBar");
+ if(!bar)return;
+ bar.innerHTML=moveBarHtml();
+ const moveBtn=document.getElementById("moveSelected");
+ if(moveBtn)moveBtn.onclick=openMoveDialog;
+ const clearBtn=document.getElementById("clearSelection");
+ if(clearBtn)clearBtn.onclick=()=>{selectedItemIds.clear();renderItemList()};
+}
+function openMoveDialog(){
+ const others=data.folders.filter(f=>f.id!==data.activeFolder);
+ if(!others.length){alert("移動先となる他のフォルダがありません。先にフォルダを追加してください。");return}
+ const e=document.getElementById("editor");
+ const prevHtml=e.innerHTML;
+ e.innerHTML=`<h2 style="margin:0 0 14px">移動先フォルダを選択</h2>${others.map(f=>`<button class="secondary" data-movetarget="${f.id}" style="display:block;width:100%;text-align:left;margin:6px 0">📁 ${esc(f.name)}</button>`).join("")}<button class="secondary" id="cancelMove" style="margin-top:14px">キャンセル</button>`;
+ e.querySelectorAll("[data-movetarget]").forEach(b=>b.onclick=()=>{
+   moveSelectedItemsTo(b.dataset.movetarget);
+ });
+ e.querySelector("#cancelMove").onclick=()=>openManager();
+}
+function moveSelectedItemsTo(targetFolderId){
+ const target=data.folders.find(f=>f.id===targetFolderId);
+ if(!target)return;
+ const srcArr=items();
+ const moving=srcArr.filter(x=>selectedItemIds.has(x.id));
+ if(!moving.length){openManager();return}
+ for(const x of moving){
+   const idx=srcArr.indexOf(x);
+   if(idx>=0)srcArr.splice(idx,1);
+   target.items=target.items||[];
+   target.items.push(x);
+ }
+ if(state.index>=srcArr.length)state.index=Math.max(0,srcArr.length-1);
+ selectedItemIds.clear();
+ save();render();openManager();
 }
 function openManager(){
  if(state.running)return;
  const e=document.getElementById("editor");
- e.innerHTML=`<div class="mode-buttons"><button class="secondary" id="exportData">全データを保存</button><button class="secondary" id="importDataBtn">インポート</button></div><input id="importFile" type="file" accept="application/json" style="display:none"><div style="height:8px"></div><button class="main-btn" id="addFolder">＋ フォルダを追加</button><div style="height:8px"></div>${data.folders.map(f=>`<div class="item"><span>📁 ${esc(f.name)}</span><button data-folderedit="${f.id}">編集</button></div>`).join("")}<hr style="border-color:#333;margin:20px 0"><h3>${esc(folder().name)}</h3><button class="main-btn" id="addItem">＋ 種目を追加</button><div id="itemList">${itemRowsHtml()}</div>`;
+ e.innerHTML=`<div class="mode-buttons"><button class="secondary" id="exportData">全データを保存</button><button class="secondary" id="importDataBtn">インポート</button></div><input id="importFile" type="file" accept="application/json" style="display:none"><div style="height:8px"></div><button class="main-btn" id="addFolder">＋ フォルダを追加</button><div style="height:8px"></div>${data.folders.map(f=>`<div class="item"><span>📁 ${esc(f.name)}</span><button data-folderedit="${f.id}">編集</button></div>`).join("")}<hr style="border-color:#333;margin:20px 0"><h3>${esc(folder().name)}</h3><button class="main-btn" id="addItem">＋ 種目を追加</button><div id="moveBar"></div><div id="itemList">${itemRowsHtml()}</div>`;
  document.getElementById("modalTitle").textContent="編集";
  document.getElementById("modal").classList.add("show");
  document.getElementById("addFolder").onclick=()=>addFolder();
  document.getElementById("addItem").onclick=()=>editItem();
  e.querySelectorAll("[data-folderedit]").forEach(b=>b.onclick=()=>editFolder(b.dataset.folderedit));
  wireItemList();
+ refreshMoveBar();
  document.getElementById("exportData").onclick=()=>{
    const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
    const url=URL.createObjectURL(blob);
