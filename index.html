@@ -21,6 +21,10 @@
 .folderbar{display:flex;gap:8px;overflow-x:auto;padding-bottom:10px}
 .folder{white-space:nowrap;border:0;border-radius:20px;padding:9px 15px;background:#292929;color:#bbb}
 .folder.active{background:#fff;color:#111}
+.folder{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+.folderbar.reordering{padding-top:8px;margin-top:-8px;padding-bottom:18px;margin-bottom:-8px}
+.folder.lifted{position:relative;z-index:5;transition:none;box-shadow:0 8px 18px rgba(0,0,0,.6),0 0 0 2px rgba(255,255,255,.35)}
+.folder.shifting{transition:transform .15s}
 .layout{display:flex;flex-direction:column;gap:16px}
 .card{background:#1d1d1d;border-radius:24px;padding:18px;flex:1;min-width:0}
 .side{flex:1;min-width:0}
@@ -74,6 +78,7 @@
       <div class="timer" id="timer">30</div>
       <button class="main-btn" id="startBtn"><span id="startBtnIcon" style="display:inline-flex;vertical-align:-3px;margin-right:6px"></span><span id="startBtnLabel">再生</span></button>
       <button class="secondary" id="stopBtn">停止</button>
+      <button class="secondary" id="pipBtn">ピクチャインピクチャ</button>
     </div>
     <div class="side">
       <div class="count" id="count"></div>
@@ -82,6 +87,7 @@
   </div>
 </div>
 
+<video id="pipVideo" playsinline muted style="position:fixed;left:0;bottom:0;width:2px;height:2px;opacity:.01;pointer-events:none"></video>
 <div class="modal" id="modal">
  <div class="sheet">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
@@ -226,10 +232,78 @@ function deleteItemConfirm(id){
  save();
  return true;
 }
+let suppressClickUntil=0;
+function attachFolderDrag(btn){
+ btn.addEventListener("contextmenu",e=>e.preventDefault());
+ btn.addEventListener("pointerdown",e=>{
+  if(state.running)return;
+  if(e.pointerType==="mouse"&&e.button!==0)return;
+  const bar=document.getElementById("folderBar"),pid=e.pointerId,sx=e.clientX,sy=e.clientY;
+  let started=false,cx=sx,raf=0,tabs,from,to,lefts,widths,shift,startScroll;
+  const apply=()=>{
+   const dx=(cx-sx)+(bar.scrollLeft-startScroll);
+   btn.style.transform=`translateX(${dx}px) scale(1.08)`;
+   const center=lefts[from]+widths[from]/2+dx;
+   to=0;
+   tabs.forEach((t,k)=>{if(k!==from&&lefts[k]+widths[k]/2<center)to++});
+   tabs.forEach((t,k)=>{
+    if(k===from)return;
+    let m=0;
+    if(from<to&&k>from&&k<=to)m=-shift;
+    else if(from>to&&k>=to&&k<from)m=shift;
+    t.style.transform=m?`translateX(${m}px)`:""
+   })
+  };
+  const loop=()=>{
+   if(!started)return;
+   const br=bar.getBoundingClientRect();
+   if(cx<br.left+40)bar.scrollLeft-=8;else if(cx>br.right-40)bar.scrollLeft+=8;
+   apply();raf=requestAnimationFrame(loop)
+  };
+  const start=()=>{
+   started=true;
+   tabs=[...bar.querySelectorAll("[data-f]")];from=tabs.indexOf(btn);to=from;
+   const br=bar.getBoundingClientRect();
+   lefts=tabs.map(t=>t.getBoundingClientRect().left-br.left+bar.scrollLeft);
+   widths=tabs.map(t=>t.offsetWidth);
+   shift=widths[from]+8;startScroll=bar.scrollLeft;
+   bar.classList.add("reordering");
+   tabs.forEach(t=>t.classList.add(t===btn?"lifted":"shifting"));
+   if(navigator.vibrate)navigator.vibrate(15);
+   loop()
+  };
+  const timer=setTimeout(start,1000);
+  const block=ev=>{if(started)ev.preventDefault()};
+  const cleanup=commit=>{
+   clearTimeout(timer);cancelAnimationFrame(raf);
+   window.removeEventListener("pointermove",onMove);
+   window.removeEventListener("pointerup",onUp);
+   window.removeEventListener("pointercancel",onCancel);
+   document.removeEventListener("touchmove",block);
+   if(!started)return;
+   started=false;
+   suppressClickUntil=Date.now()+400;
+   bar.classList.remove("reordering");
+   if(commit&&to!==from){const[m]=data.folders.splice(from,1);data.folders.splice(to,0,m);save()}
+   render()
+  };
+  const onMove=ev=>{
+   if(ev.pointerId!==pid)return;
+   if(!started){if(Math.hypot(ev.clientX-sx,ev.clientY-sy)>10)cleanup(false);return}
+   cx=ev.clientX
+  };
+  const onUp=ev=>{if(ev.pointerId===pid)cleanup(true)};
+  const onCancel=ev=>{if(ev.pointerId===pid)cleanup(false)};
+  window.addEventListener("pointermove",onMove);
+  window.addEventListener("pointerup",onUp);
+  window.addEventListener("pointercancel",onCancel);
+  document.addEventListener("touchmove",block,{passive:false})
+ })
+}
 function render(){
  const fs=document.getElementById("folderBar"), ls=document.getElementById("list");
  fs.innerHTML=data.folders.map(f=>`<button class="folder ${f.id===data.activeFolder?"active":""}" data-f="${f.id}">${esc(f.name)}</button>`).join("")+`<button class="folder" id="addFolderBtn" style="font-weight:700">＋</button>`;
- fs.querySelectorAll("[data-f]").forEach(b=>b.onclick=()=>{if(state.running)return;data.activeFolder=b.dataset.f;state.index=0;save();render()});
+ fs.querySelectorAll("[data-f]").forEach(b=>{b.onclick=()=>{if(state.running||Date.now()<suppressClickUntil)return;data.activeFolder=b.dataset.f;state.index=0;save();render()};attachFolderDrag(b)});
  const addFolderBtn=document.getElementById("addFolderBtn");
  if(addFolderBtn)addFolderBtn.onclick=()=>{if(state.running)return;addFolder()};
  const arr=items();document.getElementById("count").textContent=arr.length?`${arr.length}種目・合計${formatDuration(totalSeconds(arr))}`:"種目がありません";
@@ -308,6 +382,7 @@ function updateStartBtn(){
  }else{
    icon.innerHTML=ICON_PLAY;label.textContent="再生";
  }
+ pipSync();
 }
 function pauseTimer(){
  if(!state.running||state.paused)return;
@@ -530,6 +605,73 @@ function stop(){
 }
 document.getElementById("startBtn").onclick=begin;
 document.getElementById("stopBtn").onclick=stop;
+var pipState={canvas:null,ctx:null,timer:0,ignoreUntil:0};
+function pipDrawFrame(){
+ const c=pipState.canvas,x=pipState.ctx,W=c.width,H=c.height;
+ x.shadowBlur=0;x.fillStyle="#111";x.fillRect(0,0,W,H);
+ const img=document.querySelector("#hero img");
+ if(img&&img.complete&&img.naturalWidth){
+  try{const k=Math.max(W/img.naturalWidth,H/img.naturalHeight),w=img.naturalWidth*k,h=img.naturalHeight*k;x.drawImage(img,(W-w)/2,(H-h)/2,w,h);x.fillStyle="rgba(0,0,0,.5)";x.fillRect(0,0,W,H)}catch(e){}
+ }
+ const fit=(text,size,weight,max)=>{let f=size;x.font=`${weight} ${f}px -apple-system,sans-serif`;while(f>14&&x.measureText(text).width>max){f-=2;x.font=`${weight} ${f}px -apple-system,sans-serif`}};
+ const name=document.getElementById("exerciseName").textContent,status=document.getElementById("status").textContent,time=document.getElementById("timer").textContent;
+ x.textAlign="center";x.textBaseline="middle";x.shadowColor="rgba(0,0,0,.6)";x.shadowBlur=8;
+ x.fillStyle="#fff";fit(name,40,700,W-40);x.fillText(name,W/2,50);
+ fit(time,150,700,W-40);x.fillText(time,W/2,H/2+18);
+ x.fillStyle="#ddd";fit(status,26,400,W-40);x.fillText(status,W/2,H-32)
+}
+function pipSetMediaSession(on){
+ if(!("mediaSession" in navigator))return;
+ try{
+  const ms=navigator.mediaSession;
+  ms.setActionHandler("play",on?()=>{if(!state.running||state.paused)begin()}:null);
+  ms.setActionHandler("pause",on?()=>{if(state.running&&!state.paused)pauseTimer()}:null);
+  if(!on)ms.playbackState="none"
+ }catch(e){}
+}
+function pipSync(){
+ if(!pipState||!pipState.timer)return;
+ const v=document.getElementById("pipVideo"),want=state.running&&!state.paused;
+ try{if("mediaSession" in navigator)navigator.mediaSession.playbackState=want?"playing":"paused"}catch(e){}
+ pipState.ignoreUntil=Date.now()+600;
+ if(want){if(v.paused)v.play().catch(()=>{})}
+ else if(!v.paused){pipDrawFrame();setTimeout(()=>{pipState.ignoreUntil=Date.now()+400;v.pause()},200)}
+}
+function pipStop(){
+ clearInterval(pipState.timer);pipState.timer=0;
+ const v=document.getElementById("pipVideo");
+ pipState.ignoreUntil=Date.now()+500;
+ pipSetMediaSession(false);
+ try{v.pause()}catch(e){}
+ if(v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}
+}
+async function togglePip(){
+ const v=document.getElementById("pipVideo");
+ try{
+  if(document.pictureInPictureElement===v){await document.exitPictureInPicture();return}
+  if(v.webkitPresentationMode==="picture-in-picture"){v.webkitSetPresentationMode("inline");return}
+  if(!pipState.canvas){const c=document.createElement("canvas");c.width=640;c.height=360;pipState.canvas=c;pipState.ctx=c.getContext("2d")}
+  pipDrawFrame();
+  v.muted=true;v.playsInline=true;
+  v.srcObject=pipState.canvas.captureStream(15);
+  pipState.ignoreUntil=Date.now()+1500;
+  pipSetMediaSession(true);
+  await v.play();
+  pipState.timer=setInterval(pipDrawFrame,250);
+  if(v.requestPictureInPicture)await v.requestPictureInPicture();
+  else v.webkitSetPresentationMode("picture-in-picture");
+  pipSync()
+ }catch(err){pipStop();alert("ピクチャインピクチャを開始できませんでした。")}
+}
+{
+ const v=document.getElementById("pipVideo"),b=document.getElementById("pipBtn");
+ if(!(document.pictureInPictureEnabled||v.webkitSupportsPresentationMode))b.classList.add("hidden");
+ b.onclick=togglePip;
+ v.addEventListener("pause",()=>{if(Date.now()<pipState.ignoreUntil||!pipState.timer)return;if(state.running&&!state.paused)pauseTimer()});
+ v.addEventListener("play",()=>{if(Date.now()<pipState.ignoreUntil||!pipState.timer)return;if(!state.running||state.paused)begin()});
+ v.addEventListener("leavepictureinpicture",pipStop);
+ v.addEventListener("webkitpresentationmodechanged",()=>{if(v.webkitPresentationMode!=="picture-in-picture")pipStop()})
+}
 document.getElementById("manageBtn").onclick=openManager;
 document.getElementById("closeModal").onclick=()=>document.getElementById("modal").classList.remove("show");
 document.getElementById("closeModalTop").onclick=()=>document.getElementById("modal").classList.remove("show");
