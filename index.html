@@ -87,7 +87,7 @@
   </div>
 </div>
 
-<video id="pipVideo" playsinline muted style="position:fixed;left:0;bottom:0;width:2px;height:2px;opacity:.01;pointer-events:none"></video>
+<video id="pipVideo" playsinline muted style="position:fixed;right:0;bottom:0;width:80px;height:45px;opacity:.01;pointer-events:none"></video>
 <div class="modal" id="modal">
  <div class="sheet">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
@@ -637,6 +637,14 @@ function pipSync(){
  if(want){if(v.paused)v.play().catch(()=>{})}
  else if(!v.paused){pipDrawFrame();setTimeout(()=>{pipState.ignoreUntil=Date.now()+400;v.pause()},200)}
 }
+function pipPrepare(){
+ const v=document.getElementById("pipVideo");
+ if(!pipState.canvas){const c=document.createElement("canvas");c.width=640;c.height=360;pipState.canvas=c;pipState.ctx=c.getContext("2d")}
+ if(!v.srcObject){pipDrawFrame();v.muted=true;v.playsInline=true;v.srcObject=pipState.canvas.captureStream(15)}
+ pipState.ignoreUntil=Date.now()+1500;
+ return v.paused?v.play():Promise.resolve()
+}
+function pipWarm(){try{pipPrepare().catch(()=>{})}catch(e){}}
 function pipStop(){
  clearInterval(pipState.timer);pipState.timer=0;
  const v=document.getElementById("pipVideo");
@@ -644,29 +652,26 @@ function pipStop(){
  pipSetMediaSession(false);
  try{v.pause()}catch(e){}
  if(v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop());v.srcObject=null}
+ pipWarm()
 }
 async function togglePip(){
  const v=document.getElementById("pipVideo");
  try{
   if(document.pictureInPictureElement===v){await document.exitPictureInPicture();return}
   if(v.webkitPresentationMode==="picture-in-picture"){v.webkitSetPresentationMode("inline");return}
-  if(!pipState.canvas){const c=document.createElement("canvas");c.width=640;c.height=360;pipState.canvas=c;pipState.ctx=c.getContext("2d")}
-  pipDrawFrame();
-  v.muted=true;v.playsInline=true;
-  v.srcObject=pipState.canvas.captureStream(15);
-  pipState.ignoreUntil=Date.now()+1500;
   pipSetMediaSession(true);
-  await v.play();
+  const enter=()=>v.requestPictureInPicture?v.requestPictureInPicture():Promise.resolve(v.webkitSetPresentationMode("picture-in-picture"));
+  if(!(v.srcObject&&v.readyState>=2&&!v.paused))await pipPrepare();
+  await enter();
   pipState.timer=setInterval(pipDrawFrame,250);
-  if(v.requestPictureInPicture)await v.requestPictureInPicture();
-  else v.webkitSetPresentationMode("picture-in-picture");
   pipSync()
- }catch(err){pipStop();alert("ピクチャインピクチャを開始できませんでした。")}
+ }catch(err){pipStop();alert("ピクチャインピクチャを開始できませんでした。\n("+((err&&err.name)||"error")+")")}
 }
 {
  const v=document.getElementById("pipVideo"),b=document.getElementById("pipBtn");
  if(!(document.pictureInPictureEnabled||v.webkitSupportsPresentationMode))b.classList.add("hidden");
  b.onclick=togglePip;
+ pipWarm();
  v.addEventListener("pause",()=>{if(Date.now()<pipState.ignoreUntil||!pipState.timer)return;if(state.running&&!state.paused)pauseTimer()});
  v.addEventListener("play",()=>{if(Date.now()<pipState.ignoreUntil||!pipState.timer)return;if(!state.running||state.paused)begin()});
  v.addEventListener("leavepictureinpicture",pipStop);
