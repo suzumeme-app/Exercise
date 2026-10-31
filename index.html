@@ -84,7 +84,7 @@
       <button class="main-btn" id="startBtn"><span id="startBtnIcon" style="display:inline-flex;vertical-align:-3px;margin-right:6px"></span><span id="startBtnLabel">再生</span></button>
       <button class="secondary" id="stopBtn">停止</button>
       <button class="secondary" id="pipBtn">ピクチャインピクチャ</button>
-      <div class="toggle-row"><span>ポイント読み上げ</span><button class="switch" id="pointToggle" role="switch" aria-checked="true" aria-label="ポイント読み上げ"><i></i></button></div>
+      <div class="toggle-row"><span>読み上げ</span><button class="switch" id="pointToggle" role="switch" aria-checked="true" aria-label="読み上げ"><i></i></button></div>
     </div>
     <div class="side">
       <div class="count" id="count"></div>
@@ -522,7 +522,7 @@ function speakPoint(text){
  }catch(e){}
 }
 function playNextName(x){
- if(!x)return;
+ if(!x||!pointVoiceOn)return;
  try{window.speechSynthesis&&window.speechSynthesis.cancel()}catch(e){}
  if(x.nameAudio){
    try{
@@ -659,7 +659,7 @@ document.getElementById("pointToggle").onclick=()=>{
  pointVoiceOn=!pointVoiceOn;
  try{localStorage.setItem("exerciseTimerPointVoice",pointVoiceOn?"1":"0")}catch(e){}
  renderPointToggle();
- if(!pointVoiceOn&&state.phase==="work"){
+ if(!pointVoiceOn&&(state.phase==="work"||state.phase==="rest")){
    try{window.speechSynthesis&&window.speechSynthesis.cancel()}catch(e){}
    try{if(currentAudio){currentAudio.pause();currentAudio.currentTime=0}}catch(e){}
  }
